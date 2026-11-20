@@ -1,6 +1,6 @@
 from .codec import digest, dumps, loads
 from .errors import Conflict, ReplicationError
-from .indexes import refresh_document
+from .indexes import rebuild_collection
 from .mvcc import checked_revision
 
 
@@ -59,10 +59,9 @@ class Replication:
                     applied += 1
                 self.store.set("head", body["through"])
                 self.store.set("catalog_epoch", body["catalog_epoch"] if body["through"] == body["head"] else -1)
-                from .mvcc import visible_rows
-                for collection in connection.execute("SELECT name FROM collections").fetchall():
-                    for row in visible_rows(connection, collection[0], body["through"]):
-                        refresh_document(connection, collection[0], row["key"], loads(row["body"]))
+                if body["through"] == body["head"]:
+                    for collection in connection.execute("SELECT name FROM collections").fetchall():
+                        rebuild_collection(connection, collection[0], body["through"])
                 return {"revision": body["through"], "applied": applied}
         except (KeyError, TypeError, ValueError) as exc:
             raise ReplicationError("malformed replication envelope") from exc

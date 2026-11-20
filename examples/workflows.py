@@ -69,7 +69,17 @@ def run(flow):
                 if indexed.records != scanned.records:
                     raise RuntimeError("index and scan differ")
                 collision = rejected(lambda: db.batch().put("segments", "new", {"region": "north", "sequence": 8, "code": "c0"}).commit(), Conflict)
-                output = {"plan": indexed.plan, "keys": [row.key for row in indexed.records], "collision": collision, "integrity": db.diagnostics.inspect(True)}
+                head = db.revision
+                swap = db.batch().put("segments", "seg_00", {"region": "east", "sequence": 0, "code": "c1"}, expected=head) \
+                    .put("segments", "seg_01", {"region": "west", "sequence": 1, "code": "c0"}, expected=head).commit()
+                codes = {row.key: row.document["code"] for row in db.query("segments", {"field": "sequence", "op": "ge", "value": 0}).records}
+                duplicate = rejected(lambda: db.batch().put("segments", "seg_02", {"region": "east", "sequence": 2, "code": "c1"}).commit(), Conflict)
+                if codes["seg_00"] != "c1" or codes["seg_01"] != "c0":
+                    raise RuntimeError("unique swap was not applied")
+                output = {"plan": indexed.plan, "keys": [row.key for row in indexed.records], "collision": collision,
+                          "swap": swap.__dict__, "swapped_codes": {"seg_00": codes["seg_00"], "seg_01": codes["seg_01"]},
+                          "untouched_still_unique": rejected(lambda: db.batch().put("segments", "seg_03", {"region": "west", "sequence": 3, "code": "c5"}).commit(), Conflict),
+                          "duplicate_in_batch": duplicate, "integrity": db.diagnostics.inspect(True)}
             elif flow == "feed":
                 db.feed.register("mirror", 0)
                 db.batch().delete("segments", "seg_00").commit()

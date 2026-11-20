@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass
 from .codec import digest, dumps, key as checked_key, loads, name
 from .errors import Conflict, InvalidDocument, NotFound
-from .indexes import refresh_document
+from .indexes import apply_changes
 from .mvcc import latest_row
 from .schema import validate_document
 
@@ -84,7 +84,7 @@ class WriteBatch:
                     body = dumps(op["document"]) if op["document"] is not None else None
                     connection.execute("INSERT INTO versions VALUES (?,?,?,?,?)",
                                        (op["collection"], op["key"], revision, body, op["expires_at"]))
-                    refresh_document(connection, op["collection"], op["key"], op["document"])
+                apply_changes(connection, [(op["collection"], op["key"], op["document"]) for op in self.operations])
                 payload = {"revision": revision, "operations": self.operations}
                 connection.execute("INSERT INTO commits VALUES (?,?,?,?)",
                                    (revision, dumps(payload), self.request_key, fingerprint))
